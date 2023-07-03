@@ -1,0 +1,1 @@
+python C:\Users\bolat\Desktop\my_programs\ImageConverter\image_converter.py
