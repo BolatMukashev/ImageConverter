@@ -180,15 +180,3 @@ if __name__ == '__main__':
 	webp_files = WebpToTiffConverter(path)
 	webp_files.mass_converting()
 	webp_files.mass_deleting()
-
-
-
-def convert_jpg_to_pdf(image_path, pdf_path):
-    image = Image.open(image_path)
-    pdf = PdfWriter()
-
-    pdf.add_page()
-    pdf.add_image(image, 0, 0, image.width, image.height)
-
-    with open(pdf_path, "wb") as output:
-        pdf.write(output)
