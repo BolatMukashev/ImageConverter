@@ -161,7 +161,7 @@ class HeicToJpegConverter(ImageConverter):
 
 
 if __name__ == '__main__':
-	path = Path('C:\\Users\\bolat\\Desktop\\Client')
+	path = Path('C:\\Users\\Astana\\Desktop\\Client')
 	# path = Path('C:\\Users\\bolat\\Desktop\\Client\\WhatsApp Unknown 2023-04-17 at 14.44.37')
 	# path.joinpath('радик')
 
