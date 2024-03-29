@@ -1,11 +1,8 @@
-from PIL import Image, ImageFilter, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 from wand.image import Image as WandImage
 from pathlib import Path
-import shutil
-import os
 from enum import Enum
 from send2trash import send2trash
-import copy
 import functools
 from fpdf import FPDF
 
@@ -161,7 +158,8 @@ class HeicToJpegConverter(ImageConverter):
 
 
 if __name__ == '__main__':
-	path = Path('C:\\Users\\Astana\\Desktop\\Client')
+	path = Path(input("Вставь путь к папке с фотографиями: "))
+	
 	# path = Path('C:\\Users\\bolat\\Desktop\\Client\\WhatsApp Unknown 2023-04-17 at 14.44.37')
 	# path.joinpath('радик')
 
