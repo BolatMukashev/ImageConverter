@@ -158,7 +158,7 @@ class HeicToJpegConverter(ImageConverter):
 
 
 if __name__ == '__main__':
-	text, *znak = input("Вставь путь к папке с фотографиями: ").split(' ', 1)
+	text = input("Вставь путь к папке с фотографиями: ") #text, *znak = ... .split(' ', 1)
 	# path = Path('C:\\Users\\bolat\\Desktop\\Client\\WhatsApp Unknown 2023-04-17 at 14.44.37')
 	# path.joinpath('радик')
 
@@ -180,8 +180,8 @@ if __name__ == '__main__':
 	webp_files.mass_converting()
 	webp_files.mass_deleting()
 
-	if znak:
-		if znak[0] == 't':
-			webp_files = TiffToJpegConverter(path)
-			webp_files.mass_converting()
-			webp_files.mass_deleting()
+	# if znak:
+	# 	if znak[0] == 't':
+	# 		webp_files = TiffToJpegConverter(path)
+	# 		webp_files.mass_converting()
+	# 		webp_files.mass_deleting()
