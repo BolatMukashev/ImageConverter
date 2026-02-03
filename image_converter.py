@@ -1,10 +1,13 @@
 from PIL import Image, UnidentifiedImageError
-from wand.image import Image as WandImage
+from pillow_heif import register_heif_opener
 from pathlib import Path
 from enum import Enum
 from send2trash import send2trash
 import functools
 from fpdf import FPDF
+
+# Регистрируем поддержку HEIC в PIL
+register_heif_opener()
 
 # python C:\Users\bolat\Desktop\my_programs\image_converter.py
 
@@ -151,10 +154,19 @@ class HeicToJpegConverter(ImageConverter):
 		return images
 
 	def _image_converting(self, img_path: Path):
-		img = WandImage(filename=img_path)
-		img.format='jpg'
-		img.save(filename=self.path_.joinpath(img_path.stem + self.to_type))
-		img.close()
+		try:
+			img = Image.open(img_path)
+			# Конвертируем в RGB если необходимо (HEIC может быть RGBA)
+			if img.mode in ('RGBA', 'LA', 'P'):
+				background = Image.new('RGB', img.size, (255, 255, 255))
+				background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+				img = background
+			elif img.mode != 'RGB':
+				img = img.convert('RGB')
+			
+			img.save(self.path_.joinpath(img_path.stem + self.to_type), 'JPEG', quality=95)
+		except Exception as e:
+			print(f"\n⚠ Ошибка при конвертации {img_path.name}: {e}")
 
 
 if __name__ == '__main__':
