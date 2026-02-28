@@ -17,6 +17,8 @@ jpeg -> jpeg (jpeg из соц. сетей не редактируется в ф
 
 heic -> jpeg (heic не поддерживается фотошопом и программами для печати)
 
+avif -> jpeg (avif не поддерживается фотошопом и программами для печати)
+
 png -> webp -> tiff (png не поддерживается программами для печати.
 для сохранения прозрачного фона используем конвертиацию в webp, а потом в tiff.
 Прямая конвертация в tiff вызывает искажения фона)
@@ -141,6 +143,26 @@ class TiffToJpegConverter(ImageConverter):
 	to_type = ImagesTypes.JPEG.value[1:]
 
 
+class AvifToJpegConverter(ImageConverter):
+	mime_type = ImagesTypes.AVIF.value
+	to_type = ImagesTypes.JPEG.value[1:]
+
+	def _image_converting(self, img_path: Path):
+		try:
+			img = Image.open(img_path)
+			# Конвертируем в RGB если необходимо (AVIF может быть RGBA)
+			if img.mode in ('RGBA', 'LA', 'P'):
+				background = Image.new('RGB', img.size, (255, 255, 255))
+				background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+				img = background
+			elif img.mode != 'RGB':
+				img = img.convert('RGB')
+			
+			img.save(self.path_.joinpath(img_path.stem + self.to_type), 'JPEG', quality=95)
+		except Exception as e:
+			print(f"\n⚠ Ошибка при конвертации {img_path.name}: {e}")
+
+
 class HeicToJpegConverter(ImageConverter):
 	mime_type = AppleImagesTypes
 	to_type = ImagesTypes.JPEG.value[1:]
@@ -183,6 +205,10 @@ if __name__ == '__main__':
 	heic_files = HeicToJpegConverter(path)
 	heic_files.mass_converting()
 	heic_files.mass_deleting()
+
+	avif_files = AvifToJpegConverter(path)
+	avif_files.mass_converting()
+	avif_files.mass_deleting()
 
 	png_files = PngToWebpConverter(path)
 	png_files.mass_converting()
