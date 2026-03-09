@@ -184,20 +184,20 @@ class ConversionScreen(Screen):
 	}
 	
 	#main_wrapper {
-		width: 100%;
+		width: auto;
 		height: auto;
 	}
 	
 	#main_container {
-		width: 52;
-		height: 26;
+		width: 72;
+		height: 29;
 		border: solid $primary;
 		padding: 1 2;
 	}
 	
 	#status_container {
 		width: 28;
-		height: 26;
+		height: 29;
 		border: solid $warning;
 		padding: 1;
 		margin-left: 1;
@@ -216,17 +216,28 @@ class ConversionScreen(Screen):
 		margin: 0 0;
 	}
 	
-	#path_input {
+	#path_input_container {
 		width: 100%;
+		height: auto;
 		margin: 0 0 1 0;
+	}
+	
+	#path_input {
+		width: 1fr;
+		margin: 0;
+	}
+	
+	#clear_path_btn {
+		width: 8;
+		margin-left: 1;
 	}
 	
 	.format_container {
 		width: 1fr;
-		height: 13;
+		height: 22;
 		border: solid $secondary;
 		padding: 1;
-		margin: 0 1;
+		margin: 0 0;
 		overflow-y: auto;
 	}
 	
@@ -237,13 +248,13 @@ class ConversionScreen(Screen):
 	
 	#button_container {
 		align: center middle;
-		margin: 0;
+		margin: 0 1;
 		height: auto;
 	}
 	
 	Button {
 		margin: 0 1;
-		min-width: 16;
+		min-width: 2;
 		height: 3;
 	}
 	
@@ -264,7 +275,10 @@ class ConversionScreen(Screen):
 				yield Label("🖼️  IMAGE CONVERTER", classes="title")
 				
 				yield Label("Путь к папке с изображениями:", classes="section-title")
-				yield Input(placeholder="C:/Users/username/Desktop/images", id="path_input")
+				
+				with Horizontal(id="path_input_container"):
+					yield Input(placeholder="C:/Users/username/Desktop/images", id="path_input")
+					yield Button("🗑️", id="clear_path_btn", variant="primary")
 				
 				yield Label("Выберите формат конвертации:", classes="section-title")
 				
@@ -290,9 +304,8 @@ class ConversionScreen(Screen):
 							yield RadioButton("TIFF", id="to_tiff")
 				
 				with Horizontal(id="button_container"):
+					yield Button("🚀 Конвертировать + 🗑️", variant="warning", id="convert_delete_btn")
 					yield Button("🚀 Конвертировать", variant="success", id="convert_btn")
-					yield Button("🗑️  + Удалить", variant="warning", id="convert_delete_btn")
-					yield Button("❌ Выход", variant="error", id="exit_btn")
 			
 			with Vertical(id="status_container"):
 				yield Label("📊 Статус:", classes="section-title")
@@ -304,6 +317,13 @@ class ConversionScreen(Screen):
 		"""При монтировании экрана"""
 		self.query_one("#path_input").focus()
 		self.status_text = ""  # Инициализируем переменную для хранения текста статуса
+	
+	@on(Button.Pressed, "#clear_path_btn")
+	def clear_path(self) -> None:
+		"""Очистить путь к папке"""
+		path_input = self.query_one("#path_input", Input)
+		path_input.value = ""
+		path_input.focus()
 	
 	@on(Button.Pressed, "#convert_btn")
 	def convert_images(self) -> None:
