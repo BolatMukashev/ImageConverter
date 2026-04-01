@@ -21,6 +21,7 @@ class ImagesTypes(Enum):
 	PNG = '*.png'
 	WEBP = '*.webp'
 	TIFF = '*.tiff'
+	TIF = '*.tif'
 	GIF = '*.gif'
 	AVIF = '*.avif'
 	PDF = 'pdf_*'
@@ -113,6 +114,8 @@ class UniversalConverter(ImageConverter):
 			self.mime_type = None  # Будем обрабатывать все
 		elif from_format == 'HEIC':
 			self.mime_type = None  # Специальная обработка для HEIC
+		elif from_format in ('TIF', 'TIFF'):
+			self.mime_type = None  # Специальная обработка для TIF/TIFF
 		else:
 			self.mime_type = f'*.{from_format.lower()}'
 		
@@ -121,20 +124,28 @@ class UniversalConverter(ImageConverter):
 	
 	def _get_images(self):
 		"""Получаем список изображений для конвертации"""
-		if self.from_format == 'ALL':
+		if self.from_format == 'all':
 			# Собираем все поддерживаемые форматы
 			all_formats = ['*.jpg', '*.JPG', '*.jpeg', '*.JPEG', '*.png', '*.PNG', 
-			               '*.webp', '*.WEBP', '*.tiff', '*.TIFF', '*.gif', '*.GIF', 
-			               '*.avif', '*.AVIF', '*.heic', '*.HEIC']
+			               '*.webp', '*.WEBP', '*.tiff', '*.TIFF', '*.tif', '*.TIF',
+			               '*.gif', '*.GIF', '*.avif', '*.AVIF', '*.heic', '*.HEIC']
 			images = []
 			for fmt in all_formats:
 				images.extend(self.path_.glob(fmt))
 			return images
-		elif self.from_format.upper() == 'HEIC':
+		elif self.from_format == 'heic':
 			# Обрабатываем оба варианта написания HEIC
 			images = []
 			images.extend(self.path_.glob('*.heic'))
 			images.extend(self.path_.glob('*.HEIC'))
+			return images
+		elif self.from_format in ('tif', 'tiff'):
+			# Обрабатываем оба варианта: .tif и .tiff, в обоих регистрах
+			images = []
+			images.extend(self.path_.glob('*.tif'))
+			images.extend(self.path_.glob('*.TIF'))
+			images.extend(self.path_.glob('*.tiff'))
+			images.extend(self.path_.glob('*.TIFF'))
 			return images
 		else:
 			return self.path_.glob(self.mime_type)
@@ -163,7 +174,7 @@ class UniversalConverter(ImageConverter):
 					img = img.convert('RGBA')
 				img.save(self.path_.joinpath(img_path.stem + self.to_type), 'PNG')
 			
-			# Если целевой формат TIFF
+			# Если целевой формат TIFF или TIF
 			elif target_format in ['TIFF', 'TIF']:
 				img.save(self.path_.joinpath(img_path.stem + self.to_type), 'TIFF')
 			
@@ -190,14 +201,14 @@ class ConversionScreen(Screen):
 	
 	#main_container {
 		width: 72;
-		height: 29;
+		height: 31;
 		border: solid $primary;
 		padding: 1 2;
 	}
 	
 	#status_container {
 		width: 28;
-		height: 29;
+		height: 31;
 		border: solid $warning;
 		padding: 1;
 		margin-left: 1;
@@ -234,7 +245,7 @@ class ConversionScreen(Screen):
 	
 	.format_container {
 		width: 1fr;
-		height: 22;
+		height: 24;
 		border: solid $secondary;
 		padding: 1;
 		margin: 0 0;
@@ -291,6 +302,7 @@ class ConversionScreen(Screen):
 							yield RadioButton("PNG", id="from_png")
 							yield RadioButton("WEBP", id="from_webp")
 							yield RadioButton("TIFF", id="from_tiff")
+							yield RadioButton("TIF", id="from_tif")
 							yield RadioButton("GIF", id="from_gif")
 							yield RadioButton("AVIF", id="from_avif")
 							yield RadioButton("HEIC", id="from_heic")
@@ -302,11 +314,12 @@ class ConversionScreen(Screen):
 							yield RadioButton("JPEG", id="to_jpeg", value=True)
 							yield RadioButton("PNG", id="to_png")
 							yield RadioButton("TIFF", id="to_tiff")
+							yield RadioButton("TIF", id="to_tif")
 				
 				with Horizontal(id="button_container"):
 					yield Button("🚀 Конвертировать + 🗑️", variant="warning", id="convert_delete_btn")
 					yield Button("🚀 Конвертировать", variant="success", id="convert_btn")
-			
+		
 			with Vertical(id="status_container"):
 				yield Label("📊 Статус:", classes="section-title")
 				yield Static("Ожидание...", id="status_box")
@@ -420,3 +433,4 @@ class ImageConverterApp(App):
 if __name__ == '__main__':
 	app = ImageConverterApp()
 	app.run()
+
