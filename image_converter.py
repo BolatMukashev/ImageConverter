@@ -10,6 +10,10 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer, Button, Static, Label, Input, RadioButton, RadioSet
 from textual.screen import Screen
 from textual import on
+import rawpy
+import numpy as np
+import subprocess
+import io
 
 # Регистрируем поддержку HEIC в PIL
 register_heif_opener()
@@ -24,6 +28,7 @@ class ImagesTypes(Enum):
 	TIF = '*.tif'
 	GIF = '*.gif'
 	AVIF = '*.avif'
+	DNG = '*.dng'
 	PDF = 'pdf_*'
 
 
@@ -108,57 +113,154 @@ class UniversalConverter(ImageConverter):
 		super().__init__(path_)
 		self.from_format = from_format.lower()
 		self.to_format = to_format.lower()
-		
-		# Устанавливаем mime_type
-		if from_format == 'ALL':
-			self.mime_type = None  # Будем обрабатывать все
-		elif from_format == 'HEIC':
-			self.mime_type = None  # Специальная обработка для HEIC
-		elif from_format in ('TIF', 'TIFF'):
-			self.mime_type = None  # Специальная обработка для TIF/TIFF
-		else:
-			self.mime_type = f'*.{from_format.lower()}'
-		
-		# Устанавливаем to_type
+		self.mime_type = f'*.{from_format.lower()}'
 		self.to_type = f'.{to_format.lower()}'
 	
 	def _get_images(self):
-		"""Получаем список изображений для конвертации"""
-		if self.from_format == 'all':
-			# Собираем все поддерживаемые форматы
-			all_formats = ['*.jpg', '*.JPG', '*.jpeg', '*.JPEG', '*.png', '*.PNG', 
-			               '*.webp', '*.WEBP', '*.tiff', '*.TIFF', '*.tif', '*.TIF',
-			               '*.gif', '*.GIF', '*.avif', '*.AVIF', '*.heic', '*.HEIC']
-			images = []
-			for fmt in all_formats:
-				images.extend(self.path_.glob(fmt))
-			return images
-		elif self.from_format == 'heic':
-			# Обрабатываем оба варианта написания HEIC
-			images = []
-			images.extend(self.path_.glob('*.heic'))
-			images.extend(self.path_.glob('*.HEIC'))
-			return images
-		elif self.from_format in ('tif', 'tiff'):
-			# Обрабатываем оба варианта: .tif и .tiff, в обоих регистрах
-			images = []
-			images.extend(self.path_.glob('*.tif'))
-			images.extend(self.path_.glob('*.TIF'))
-			images.extend(self.path_.glob('*.tiff'))
-			images.extend(self.path_.glob('*.TIFF'))
-			return images
-		else:
-			return self.path_.glob(self.mime_type)
-	
+		"""Получаем список изображений без дубликатов (case-insensitive через stem)"""
+		patterns = {
+			'all':        ['*.jpg', '*.jpeg', '*.png', '*.webp', '*.tiff',
+			               '*.tif', '*.gif', '*.avif', '*.heic', '*.dng'],
+			'heic':       ['*.heic'],
+			'tif':        ['*.tif', '*.tiff'],
+			'tiff':       ['*.tif', '*.tiff'],
+			'dng':        ['*.dng'],
+		}
+		fmt = self.from_format
+		glob_list = patterns.get(fmt, [f'*.{fmt}'])
+		
+		seen = set()
+		images = []
+		for pattern in glob_list:
+			# glob без учёта регистра: собираем оба варианта
+			for p in [pattern, pattern.upper()]:
+				for f in self.path_.glob(p):
+					key = f.resolve()
+					if key not in seen:
+						seen.add(key)
+						images.append(f)
+		return images
+
+	@staticmethod
+	def _open_dng(img_path: Path) -> Image.Image:
+		"""
+		Открываем DNG файл (в т.ч. iPhone ProRAW) несколькими методами по цепочке:
+		  1. tifffile + imagecodecs — читает LJPEG/LinearDNG (iPhone ProRAW, Adobe DNG)
+		     Ищет страницу с полным изображением (SubfileType=0) или preview (SubfileType=1)
+		  2. rawpy.postprocess() — для классических Bayer RAW DNG
+		  3. rawpy.extract_thumb() — встроенный JPEG превью
+		  4. PIL как TIFF — простой fallback
+		  5. dcraw через subprocess — последний резерв
+		"""
+		errors = []
+
+		# Метод 1: tifffile + imagecodecs (лучший для iPhone ProRAW / LinearDNG)
+		try:
+			import tifffile
+			import numpy as np
+
+			with tifffile.TiffFile(str(img_path)) as tif:
+				# Собираем все страницы с их метаданными
+				pages_info = []
+				for i, page in enumerate(tif.pages):
+					tags = {tag.name: tag.value for tag in page.tags.values()}
+					subfile = tags.get('NewSubfileType', tags.get('SubfileType', -1))
+					photo = tags.get('PhotometricInterpretation', -1)
+					w = tags.get('ImageWidth', 0)
+					h = tags.get('ImageLength', 0)
+					pages_info.append((i, page, subfile, photo, w, h))
+
+				# Приоритет 1: полное RGB изображение (SubfileType=0, photometric=RGB/YCbCr)
+				# Приоритет 2: preview (SubfileType=1)
+				# Приоритет 3: любая читаемая страница
+				best_page = None
+				for priority, subfile_target in [(0, 0), (1, 1), (2, -1)]:
+					for i, page, subfile, photo, w, h in pages_info:
+						if priority == 2 or subfile == subfile_target:
+							try:
+								data = page.asarray()
+								if data.ndim == 3 and data.shape[2] in (3, 4):
+									best_page = data
+									break
+								elif data.ndim == 2:
+									best_page = data
+									break
+							except Exception:
+								continue
+					if best_page is not None:
+						break
+
+			if best_page is not None:
+				arr = best_page
+				# Нормализуем 16-bit в 8-bit
+				if arr.dtype == np.uint16:
+					arr = (arr / 256).astype(np.uint8)
+				elif arr.dtype != np.uint8:
+					arr = arr.astype(np.uint8)
+				# Убираем альфа-канал если есть
+				if arr.ndim == 3 and arr.shape[2] == 4:
+					arr = arr[:, :, :3]
+				return Image.fromarray(arr)
+		except Exception as e:
+			errors.append(f"tifffile: {e}")
+
+		# Метод 2: rawpy полное RAW-декодирование
+		try:
+			with rawpy.imread(str(img_path)) as raw:
+				rgb = raw.postprocess(use_camera_wb=True, no_auto_bright=False, output_bps=8)
+			return Image.fromarray(rgb)
+		except Exception as e:
+			errors.append(f"rawpy.postprocess: {e}")
+
+		# Метод 3: rawpy встроенный превью (thumbnail)
+		try:
+			with rawpy.imread(str(img_path)) as raw:
+				thumb = raw.extract_thumb()
+			if thumb.format == rawpy.ThumbFormat.JPEG:
+				return Image.open(io.BytesIO(bytes(thumb.data)))
+			elif thumb.format == rawpy.ThumbFormat.BITMAP:
+				return Image.fromarray(thumb.data)
+		except Exception as e:
+			errors.append(f"rawpy.extract_thumb: {e}")
+
+		# Метод 4: PIL как TIFF (DNG — расширение TIFF формата)
+		try:
+			from PIL import TiffImagePlugin
+			with open(img_path, 'rb') as f:
+				data = f.read()
+			img = Image.open(io.BytesIO(data))
+			img.load()
+			return img
+		except Exception as e:
+			errors.append(f"PIL/TIFF: {e}")
+
+		# Метод 5: dcraw через subprocess
+		try:
+			result = subprocess.run(
+				['dcraw', '-c', '-w', '-T', str(img_path)],
+				capture_output=True, timeout=120
+			)
+			if result.returncode == 0 and result.stdout:
+				return Image.open(io.BytesIO(result.stdout))
+			errors.append(f"dcraw: exit={result.returncode}, {result.stderr.decode(errors='replace')[:100]}")
+		except FileNotFoundError:
+			errors.append("dcraw: не установлен")
+		except Exception as e:
+			errors.append(f"dcraw: {e}")
+
+		raise RuntimeError("Все методы не сработали:\n  " + "\n  ".join(errors))
+
 	def _image_converting(self, img_path: Path):
 		"""Конвертируем изображение"""
 		try:
-			img = Image.open(img_path)
+			if img_path.suffix.lower() == '.dng':
+				img = self._open_dng(img_path)
+			else:
+				img = Image.open(img_path)
 			
-			# Определяем целевой формат
 			target_format = self.to_format.upper().replace('.', '')
+			out_path = self.path_.joinpath(img_path.stem + self.to_type)
 			
-			# Если целевой формат JPEG, конвертируем в RGB
 			if target_format in ['JPEG', 'JPG']:
 				if img.mode in ('RGBA', 'LA', 'P'):
 					background = Image.new('RGB', img.size, (255, 255, 255))
@@ -166,21 +268,18 @@ class UniversalConverter(ImageConverter):
 					img = background
 				elif img.mode != 'RGB':
 					img = img.convert('RGB')
-				img.save(self.path_.joinpath(img_path.stem + self.to_type), 'JPEG', quality=95)
+				img.save(out_path, 'JPEG', quality=95)
 			
-			# Если целевой формат PNG и нужна прозрачность
 			elif target_format == 'PNG':
 				if img.mode not in ('RGBA', 'LA', 'P', 'RGB'):
 					img = img.convert('RGBA')
-				img.save(self.path_.joinpath(img_path.stem + self.to_type), 'PNG')
+				img.save(out_path, 'PNG')
 			
-			# Если целевой формат TIFF или TIF
 			elif target_format in ['TIFF', 'TIF']:
-				img.save(self.path_.joinpath(img_path.stem + self.to_type), 'TIFF')
+				img.save(out_path, 'TIFF')
 			
 			else:
-				# Для остальных форматов
-				img.save(self.path_.joinpath(img_path.stem + self.to_type))
+				img.save(out_path)
 				
 		except Exception as e:
 			raise Exception(f"Ошибка при конвертации {img_path.name}: {e}")
@@ -201,14 +300,14 @@ class ConversionScreen(Screen):
 	
 	#main_container {
 		width: 72;
-		height: 31;
+		height: 29;
 		border: solid $primary;
 		padding: 1 2;
 	}
 	
 	#status_container {
-		width: 28;
-		height: 31;
+		width: 40;
+		height: 29;
 		border: solid $warning;
 		padding: 1;
 		margin-left: 1;
@@ -245,7 +344,7 @@ class ConversionScreen(Screen):
 	
 	.format_container {
 		width: 1fr;
-		height: 24;
+		height: 17;
 		border: solid $secondary;
 		padding: 1;
 		margin: 0 0;
@@ -294,7 +393,7 @@ class ConversionScreen(Screen):
 				yield Label("Выберите формат конвертации:", classes="section-title")
 				
 				with Horizontal():
-					with Vertical(classes="format_container"):
+					with Horizontal(classes="format_container"):
 						yield Label("ИЗ формата:", classes="section-title")
 						with RadioSet(id="from_format"):
 							yield RadioButton("JPG", id="from_jpg")
@@ -306,9 +405,10 @@ class ConversionScreen(Screen):
 							yield RadioButton("GIF", id="from_gif")
 							yield RadioButton("AVIF", id="from_avif")
 							yield RadioButton("HEIC", id="from_heic")
+							yield RadioButton("DNG", id="from_dng")
 							yield RadioButton("ALL (все форматы)", id="from_all", value=True)
 					
-					with Vertical(classes="format_container"):
+					with Horizontal(classes="format_container"):
 						yield Label("В формат:", classes="section-title")
 						with RadioSet(id="to_format"):
 							yield RadioButton("JPEG", id="to_jpeg", value=True)
@@ -433,4 +533,3 @@ class ImageConverterApp(App):
 if __name__ == '__main__':
 	app = ImageConverterApp()
 	app.run()
-
