@@ -1,1 +1,1 @@
-C:\Users\Astana\Desktop\MyPrograms\ImageConverter\venv\Scripts\python.exe C:\Users\Astana\Desktop\MyPrograms\ImageConverter\image_converter.py
+C:\Users\Astana\Desktop\MyPrograms\ImageConverter\.venv\Scripts\python.exe C:\Users\Astana\Desktop\MyPrograms\ImageConverter\image_converter.py

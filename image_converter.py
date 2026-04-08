@@ -4,7 +4,6 @@ from pathlib import Path
 from enum import Enum
 from send2trash import send2trash
 import functools
-from fpdf import FPDF
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer, Button, Static, Label, Input, RadioButton, RadioSet
@@ -14,6 +13,8 @@ import rawpy
 import numpy as np
 import subprocess
 import io
+import tifffile
+
 
 # Регистрируем поддержку HEIC в PIL
 register_heif_opener()
@@ -156,8 +157,6 @@ class UniversalConverter(ImageConverter):
 
 		# Метод 1: tifffile + imagecodecs (лучший для iPhone ProRAW / LinearDNG)
 		try:
-			import tifffile
-			import numpy as np
 
 			with tifffile.TiffFile(str(img_path)) as tif:
 				# Собираем все страницы с их метаданными
