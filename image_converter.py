@@ -276,7 +276,19 @@ class UniversalConverter(ImageConverter):
 			
 			elif target_format in ['TIFF', 'TIF']:
 				img.save(out_path, 'TIFF')
-			
+
+			# ─── НОВОЕ: конвертация в PDF ───────────────────────────────────────
+			elif target_format == 'PDF':
+				# PDF не поддерживает RGBA/P — конвертируем в RGB
+				if img.mode in ('RGBA', 'LA', 'P'):
+					background = Image.new('RGB', img.size, (255, 255, 255))
+					background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+					img = background
+				elif img.mode != 'RGB':
+					img = img.convert('RGB')
+				img.save(out_path, 'PDF', resolution=150)
+			# ────────────────────────────────────────────────────────────────────
+
 			else:
 				img.save(out_path)
 				
@@ -299,14 +311,14 @@ class ConversionScreen(Screen):
 	
 	#main_container {
 		width: 72;
-		height: 29;
+		height: 30;
 		border: solid $primary;
 		padding: 1 2;
 	}
 	
 	#status_container {
 		width: 40;
-		height: 29;
+		height: 30;
 		border: solid $warning;
 		padding: 1;
 		margin-left: 1;
@@ -343,7 +355,7 @@ class ConversionScreen(Screen):
 	
 	.format_container {
 		width: 1fr;
-		height: 17;
+		height: 18;
 		border: solid $secondary;
 		padding: 1;
 		margin: 0 0;
@@ -414,6 +426,7 @@ class ConversionScreen(Screen):
 							yield RadioButton("PNG", id="to_png")
 							yield RadioButton("TIFF", id="to_tiff")
 							yield RadioButton("TIF", id="to_tif")
+							yield RadioButton("PDF", id="to_pdf")   # ← НОВОЕ
 				
 				with Horizontal(id="button_container"):
 					yield Button("🚀 Конвертировать + 🗑️", variant="warning", id="convert_delete_btn")
