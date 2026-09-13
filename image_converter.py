@@ -60,8 +60,11 @@ class ImageConverter:
 	mime_type = None
 	to_type = None
 
-	def __init__(self, path_: Path = 'C:/Users/bolat/Desktop/Client/'):
-		self.path_ = Path(path_)
+	def __init__(self, path_: Path = '/Users/bolatmukasev/Downloads/Новая папка'):
+		path_str = str(path_).strip()
+		if len(path_str) >= 2 and path_str[0] == path_str[-1] and path_str[0] in ("'", '"'):
+			path_str = path_str[1:-1].strip()
+		self.path_ = Path(path_str)
 
 	def _get_images(self):
 		"""interface method"""
@@ -398,7 +401,7 @@ class ConversionScreen(Screen):
 				yield Label("Путь к папке с изображениями:", classes="section-title")
 				
 				with Horizontal(id="path_input_container"):
-					yield Input(placeholder="C:/Users/username/Desktop/images", id="path_input")
+					yield Input(placeholder="/Users/bolatmukasev/Downloads", id="path_input")
 					yield Button("🗑️", id="clear_path_btn", variant="primary")
 				
 				yield Label("Выберите формат конвертации:", classes="section-title")
@@ -466,6 +469,10 @@ class ConversionScreen(Screen):
 		status_box = self.query_one("#status_box", Static)
 		
 		path_str = path_input.value.strip()
+		# Убираем обрамляющие кавычки (одинарные/двойные), которые часто
+		# попадают в путь при перетаскивании папки в терминал или копировании
+		if len(path_str) >= 2 and path_str[0] == path_str[-1] and path_str[0] in ("'", '"'):
+			path_str = path_str[1:-1].strip()
 		
 		if not path_str:
 			status_box.update("⚠ Ошибка: Укажите путь к папке!")
