@@ -14,6 +14,7 @@ import numpy as np
 import subprocess
 import io
 import tifffile
+import pymupdf  # PyMuPDF — рендер страниц PDF (poppler не нужен)
 
 
 # Регистрируем поддержку HEIC в PIL
@@ -129,6 +130,7 @@ class UniversalConverter(ImageConverter):
 			'tif':        ['*.tif', '*.tiff'],
 			'tiff':       ['*.tif', '*.tiff'],
 			'dng':        ['*.dng'],
+			'pdf':        ['*.pdf'],
 		}
 		fmt = self.from_format
 		glob_list = patterns.get(fmt, [f'*.{fmt}'])
@@ -252,51 +254,77 @@ class UniversalConverter(ImageConverter):
 
 		raise RuntimeError("Все методы не сработали:\n  " + "\n  ".join(errors))
 
+	# Качество рендера страниц PDF (dpi). 200 — хороший баланс размера и чёткости
+	PDF_DPI = 200
+
 	def _image_converting(self, img_path: Path):
-		"""Конвертируем изображение"""
+		"""Конвертируем изображение (или PDF постранично)"""
 		try:
+			if img_path.suffix.lower() == '.pdf':
+				self._convert_pdf(img_path)
+				return
+
 			if img_path.suffix.lower() == '.dng':
 				img = self._open_dng(img_path)
 			else:
 				img = Image.open(img_path)
-			
-			target_format = self.to_format.upper().replace('.', '')
+
 			out_path = self.path_.joinpath(img_path.stem + self.to_type)
-			
-			if target_format in ['JPEG', 'JPG']:
-				if img.mode in ('RGBA', 'LA', 'P'):
-					background = Image.new('RGB', img.size, (255, 255, 255))
-					background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-					img = background
-				elif img.mode != 'RGB':
-					img = img.convert('RGB')
-				img.save(out_path, 'JPEG', quality=95)
-			
-			elif target_format == 'PNG':
-				if img.mode not in ('RGBA', 'LA', 'P', 'RGB'):
-					img = img.convert('RGBA')
-				img.save(out_path, 'PNG')
-			
-			elif target_format in ['TIFF', 'TIF']:
-				img.save(out_path, 'TIFF')
+			self._save_image(img, out_path)
 
-			# ─── НОВОЕ: конвертация в PDF ───────────────────────────────────────
-			elif target_format == 'PDF':
-				# PDF не поддерживает RGBA/P — конвертируем в RGB
-				if img.mode in ('RGBA', 'LA', 'P'):
-					background = Image.new('RGB', img.size, (255, 255, 255))
-					background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-					img = background
-				elif img.mode != 'RGB':
-					img = img.convert('RGB')
-				img.save(out_path, 'PDF', resolution=150)
-			# ────────────────────────────────────────────────────────────────────
-
-			else:
-				img.save(out_path)
-				
 		except Exception as e:
 			raise Exception(f"Ошибка при конвертации {img_path.name}: {e}")
+
+	def _convert_pdf(self, pdf_path: Path):
+		"""
+		Каждая страница PDF сохраняется отдельным файлом:
+		название.pdf -> название_1_стр.jpeg, название_2_стр.jpeg, ...
+		"""
+		if self.to_format.upper().replace('.', '') == 'PDF':
+			raise ValueError("PDF → PDF конвертировать не нужно")
+
+		with pymupdf.open(pdf_path) as doc:
+			if doc.needs_pass:
+				raise ValueError("PDF защищён паролем")
+			for page_num, page in enumerate(doc, 1):
+				pix = page.get_pixmap(dpi=self.PDF_DPI, alpha=False)
+				img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+				out_path = self.path_.joinpath(f"{pdf_path.stem}_{page_num}_стр{self.to_type}")
+				self._save_image(img, out_path)
+
+	def _save_image(self, img: Image.Image, out_path: Path):
+		"""Сохраняем PIL-изображение в нужный формат"""
+		target_format = self.to_format.upper().replace('.', '')
+
+		if target_format in ['JPEG', 'JPG']:
+			if img.mode in ('RGBA', 'LA', 'P'):
+				background = Image.new('RGB', img.size, (255, 255, 255))
+				background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+				img = background
+			elif img.mode != 'RGB':
+				img = img.convert('RGB')
+			img.save(out_path, 'JPEG', quality=95)
+
+		elif target_format == 'PNG':
+			if img.mode not in ('RGBA', 'LA', 'P', 'RGB'):
+				img = img.convert('RGBA')
+			img.save(out_path, 'PNG')
+
+		elif target_format in ['TIFF', 'TIF']:
+			img.save(out_path, 'TIFF')
+
+		elif target_format == 'PDF':
+			# PDF не поддерживает RGBA/P — конвертируем в RGB
+			if img.mode in ('RGBA', 'LA', 'P'):
+				background = Image.new('RGB', img.size, (255, 255, 255))
+				background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+				img = background
+			elif img.mode != 'RGB':
+				img = img.convert('RGB')
+			img.save(out_path, 'PDF', resolution=150)
+
+		else:
+			img.save(out_path)
 
 
 class ConversionScreen(Screen):
@@ -420,6 +448,7 @@ class ConversionScreen(Screen):
 							yield RadioButton("AVIF", id="from_avif")
 							yield RadioButton("HEIC", id="from_heic")
 							yield RadioButton("DNG", id="from_dng")
+							yield RadioButton("PDF", id="from_pdf")
 							yield RadioButton("ALL (все форматы)", id="from_all", value=True)
 					
 					with Horizontal(classes="format_container"):
